@@ -176,6 +176,10 @@
         <button id="select-dir-btn">Select Directory</button>
         
         <label>
+            <input type="checkbox" id="mode-toggle"> Extract Signatures Only
+        </label>
+
+        <label>
             Target Extensions (space separated)
             <input type="text" id="extensions-input" value="gd rs lua cs toml json" placeholder="e.g. gd rs lua">
         </label>
@@ -320,6 +324,94 @@
             }
         }
 
+        function stripToSignatures(content) {
+    const lines = content.split('\n');
+    let output = [];
+    let indentLevel = 0;
+    
+    // Pattern to catch definitions (classes, functions, namespaces)
+    const sigPattern = /^(public|private|protected|static|fn|def|class|interface|struct|type|func|namespace|using|import|package)/i;
+
+    for (let line of lines) {
+        let trimmed = line.trim();
+        
+        // 1. If it's a signature, keep it with its original indentation
+        if (sigPattern.test(trimmed)) {
+            output.push(line);
+        } 
+        // 2. Keep structural braces to maintain the "skeleton"
+        else if (trimmed === '{' || trimmed === '}') {
+            output.push(line);
+        }
+        // 3. Keep empty lines for readability
+        else if (trimmed === "") {
+            output.push("");
+        }
+        // 4. Optionally: keep lines that end with a semicolon (like fields)
+        else if (trimmed.endsWith(';')) {
+            output.push(line);
+        }
+    }
+    
+    // Add a trailing comment to clarify the file has been truncated
+    if (output.length > 0) output.push("// ... [implementation omitted]");
+    
+    return output.length > 0 ? output.join('\n') : lines.slice(0, 10).join('\n') + "\n// ... [body stripped]";
+}
+
+        function stripToSignaturesDeprecated(content) {
+            const lines = content.split('\n');
+            let output = [];
+            let inBlock = false;
+    
+            // Regex for common function/class signatures
+            const sigPattern = /^(public|private|protected|static|fn|def|class|interface|struct|type|func)\s+/;
+
+            for (let line of lines) {
+                let trimmed = line.trim();
+                // If it looks like a signature, keep it
+                if (sigPattern.test(trimmed)) {
+                    output.push(line);
+                    inBlock = true;
+                } 
+                // If it's a closing brace, stop the block
+                else if (inBlock && (trimmed === '}' || trimmed === 'end')) {
+                    output.push('// ...');
+                    inBlock = false;
+                }
+            }
+            return output.length > 0 ? output.join('\n') : content;
+        }
+
+        function stripToSignaturesDeprecated2(content) {
+    const lines = content.split('\n');
+    let output = [];
+    
+    // Broadened regex: looks for keywords at the start of a line
+    // or lines that contain common signature delimiters like '(', '{'
+    const sigPattern = /^(public|private|protected|static|fn|def|class|interface|struct|type|func|namespace|using|import|package)/i;
+
+    for (let line of lines) {
+        let trimmed = line.trim();
+        
+        // Include lines that look like signatures
+        if (sigPattern.test(trimmed)) {
+            output.push(line);
+        } 
+        // Also include lines that are just braces if you want to keep structure
+        else if (trimmed === '}' || trimmed === '{') {
+            output.push(line);
+        }
+        // If it's a blank line, keep it for readability
+        else if (trimmed === "") {
+            output.push("");
+        }
+    }
+    
+    // If nothing matched, return the first 10 lines as a fallback so the file isn't empty
+    return output.length > 0 ? output.join('\n') : lines.slice(0, 10).join('\n') + "\n// ... (full content omitted)";
+}
+
         async function aggregateContents(dirHandle, currentPath, allowedExtensions, bodyParts) {
             for await (const entry of dirHandle.values()) {
                 const entryRelativePath = `${currentPath}/${entry.name}`;
@@ -332,9 +424,14 @@
                     if (allowedExtensions.includes(ext)) {
                         try {
                             const file = await entry.getFile();
-                            const content = await file.text();
+                            let content = await file.text();
                             const lang = getLanguageName(ext);
                             
+                            // Get function stubs if stubs is on
+                            if (document.getElementById('mode-toggle').checked){
+                                content = stripToSignatures(content)
+                            }
+
                             const fileBlock = `<file path="${entryRelativePath}" language="${lang}">\n${content}\n</file>\n`;
                             bodyParts.push(fileBlock);
                             fileCount++;
