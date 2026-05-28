@@ -72,20 +72,16 @@ selectDirBtn.addEventListener('click', async () => {
 
       if (isAllMode) {
          statusDiv.textContent = `Analyzing directory structure to discover valid source extensions...`;
-         // Run a lightning-fast pre-flight pass to gather available, targetable extensions
          const discoveredExtensions = new Set();
          await harvestExtensions(dirHandle, discoveredExtensions);
          allowedExtensions = Array.from(discoveredExtensions);
-         
-         // Visual feedback to the operator showing what the scanner detected
          statusDiv.textContent = `Discovered ${allowedExtensions.length} language targets: [${allowedExtensions.join(', ')}]`;
       } else {
          allowedExtensions = rawInputValue
             .split(/\s+/)
-            .map(ext => ext.replace(/^\./, ''));
+            .map(ext => ext.replace(/^\./, '').toLowerCase());
       }
 
-      // If no valid extensions found, stop processing immediately
       if (allowedExtensions.length === 0) {
          statusDiv.textContent = `Aborted: No parseable extensions identified in target directory.`;
          return;
@@ -121,8 +117,7 @@ selectDirBtn.addEventListener('click', async () => {
 });
 
 /**
- * Simple Discovery Layer: Scans directory paths to map valid file schemas.
- * Leverages existing getLanguageName mapping dictionary to reject non-text binary blobs.
+ * Discovery Layer: Maps valid schema targets via fast folder evaluation pass.
  */
 async function harvestExtensions(dirHandle, extensionSet) {
    for await (const entry of dirHandle.values()) {
@@ -133,9 +128,6 @@ async function harvestExtensions(dirHandle, extensionSet) {
       } else if (entry.kind === 'file') {
          if (entry.name.includes('.')) {
             const ext = entry.name.split('.').pop().toLowerCase();
-            
-            // SECURITY CHECK: Guard context window from processing unknown binary files
-            // Only capture extensions explicitly listed in your getLanguageName dictionary
             if (getLanguageName(ext) !== 'text') {
                extensionSet.add(ext);
             }
@@ -145,14 +137,12 @@ async function harvestExtensions(dirHandle, extensionSet) {
 }
 
 /**
- * Upgraded Tree Traversal: Recursively evaluates directory contents.
- * Returns true if the sub-tree contains at least one file matching allowedExtensions.
- * Automatically prunes out dead paths (like internal hidden data structures).
+ * Upgraded Tree Traversal: Generates accurate directory mapping tree.
  */
 async function buildTreeStructure(dirHandle, prefix, lines, allowedExtensions) {
    const entries = [];
    for await (const entry of dirHandle.values()) {
-      if (entry.name === '.git') continue; // Always protect tree context from noise
+      if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') continue;
       entries.push(entry);
    }
 
@@ -192,15 +182,15 @@ async function buildTreeStructure(dirHandle, prefix, lines, allowedExtensions) {
 // Universal Structural Reduction Layer
 function stripToSignatures(content, ext) {
    const normalizedExt = ext.toLowerCase();
-
-   // Pre-flight check: Detect minified/single-line assets to prevent parsing locks
    const lines = content.split('\n');
+
+   // Minified Asset Verification Layer
    const avgLineLength = content.length / (lines.length || 1);
    if (avgLineLength > 220 && lines.length < 5) {
       return `// [System Alert: Minified or single-line codebase detected. Fallback signature strategy initiated.]\n${content.substring(0, 500)}... [Truncated due to token limits]`;
    }
 
-   // Strategy routing
+   // Strategy Routing Hub
    if (normalizedExt === 'json') return extractJsonSkeleton(lines);
    if (normalizedExt === 'css') return extractCssStructure(lines);
    if (['html', 'xml', 'tscn', 'tres', 'svg'].includes(normalizedExt)) return extractMarkupSkeleton(lines);
@@ -211,7 +201,7 @@ function stripToSignatures(content, ext) {
 }
 
 /**
- * Enhanced Fallback: Captures File Boundaries (First 5 + Last 5 lines)
+ * Boundary Guard: First 5 + Last 5 lines context mapping
  */
 function getSmarterFallback(lines) {
     if (lines.length <= 10) return lines.join('\n');
@@ -222,7 +212,6 @@ function getSmarterFallback(lines) {
 
 /**
  * Strategy: Braced Code Token Squashing
- * Eliminates the "Brace Cliff" by forcing signatures to close themselves.
  */
 function extractBracedSignatures(lines) {
     let output = [];
@@ -233,19 +222,15 @@ function extractBracedSignatures(lines) {
     for (let line of lines) {
         let trimmed = line.trim();
         
-        // 1. Preserve Maintenance & Documentation
         if (commentPattern.test(trimmed) || maintenancePattern.test(trimmed)) {
             output.push(line);
             continue;
         }
 
-        // 2. Squash Signatures
         if (keyPattern.test(trimmed)) {
-            // If the line is an import/export without a block, keep it as is
             if (trimmed.startsWith('import ') || trimmed.startsWith('using ') || trimmed.endsWith(';')) {
                 output.push(line);
             } else {
-                // Otherwise, cap the structural signature to prevent scope-bleed
                 let squashedLine = line.replace(/\{?\s*$/, ' { ... }');
                 output.push(squashedLine);
             }
@@ -255,7 +240,7 @@ function extractBracedSignatures(lines) {
 }
 
 /**
- * Strategy: Indentation-Preserving Signatures (Upgraded)
+ * Strategy: Indentation-Preserving Signatures
  */
 function extractIndentedSignatures(lines) {
     let output = [];
@@ -273,8 +258,7 @@ function extractIndentedSignatures(lines) {
 }
 
 /**
- * Strategy: Markup Tag & Attribute Skeletization
- * Truncates inner text blocks AND massive inline attributes.
+ * Strategy: Markup Tag & Inline Attribute Truncation
  */
 function extractMarkupSkeleton(lines) {
    let output = [];
@@ -285,12 +269,10 @@ function extractMarkupSkeleton(lines) {
       if (trimmed.startsWith('<') || trimmed.endsWith('>')) {
          let processedLine = line;
 
-         // 1. Truncate bloated tag attributes (e.g., massive class="..." or d="...")
          if (processedLine.length > 100 && processedLine.includes('=')) {
              processedLine = processedLine.replace(/([a-zA-Z0-9-]+)="([^"]{40,})"/g, '$1="..."');
          }
 
-         // 2. Truncate heavy inner HTML text nodes
          if (processedLine.includes('>') && processedLine.includes('</') && processedLine.length > 120) {
             const openTag = processedLine.substring(0, processedLine.indexOf('>') + 1);
             const closeTag = processedLine.substring(processedLine.lastIndexOf('</'));
@@ -304,19 +286,17 @@ function extractMarkupSkeleton(lines) {
 }
 
 /**
- * Strategy: JSON Schema/Key Skeletization
+ * Strategy: JSON Structural Processing with Counter Guard
  */
 function extractJsonSkeleton(lines) {
    let output = [];
 
-   for (let line of lines) {
-        let line = lines[i];  
-        let trimmed = line.trim();
+   for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      let trimmed = line.trim();
       
-      // [NEW] Payload Heuristic: If we hit 100 structural lines, truncate the rest.
       if (output.length > 100) {
           output.push("  // ... [Massive JSON data payload truncated to preserve context schema]");
-          // Append the last 3 lines to ensure the braces/brackets close cleanly
           output.push(...lines.slice(-3));
           break; 
       }
@@ -344,7 +324,7 @@ function extractJsonSkeleton(lines) {
 }
 
 /**
- * Strategy: CSS Selector & Token Reduction
+ * Strategy: CSS Selectors & Reduction Parameters
  */
 function extractCssStructure(lines) {
    let output = [];
@@ -366,8 +346,7 @@ function extractCssStructure(lines) {
 }
 
 /**
- * Strategy: Database Schema Extraction
- * Captures table scaffolding but ignores massive data insertions.
+ * Strategy: Database Schema SQL Filter Engine
  */
 function extractSqlSchema(lines) {
     let output = [];
@@ -376,11 +355,8 @@ function extractSqlSchema(lines) {
 
     for (let line of lines) {
         let trimmed = line.trim();
-        
-        // Immediately bypass data dumps
         if (ignorePattern.test(trimmed)) continue; 
 
-        // Keep structural definitions, braces, and column declarations (which usually end in commas)
         if (schemaPattern.test(trimmed) || trimmed === '(' || trimmed === ');' || trimmed.endsWith(',')) {
             output.push(line);
         }
@@ -388,40 +364,37 @@ function extractSqlSchema(lines) {
     return output.length > 0 ? output.join('\n') : "-- ... [SQL Schema omitted]";
 }
 
+/**
+ * Master Data Assembly Layer with Size Threshold Guards
+ */
 async function aggregateContents(dirHandle, currentPath, allowedExtensions, bodyParts) {
    for await (const entry of dirHandle.values()) {
-      if (entry.name === '.git') continue; 
+      if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === 'dist') continue; 
       const entryRelativePath = `${currentPath}/${entry.name}`;
 
       if (entry.kind === 'directory') {
          await aggregateContents(entry, entryRelativePath, allowedExtensions, bodyParts);
       } else if (entry.kind === 'file') {
-         
-        // Inside aggregateContents, right after getting the file reference:
-        const file = await entry.getFile();
-
-        // [NEW] Hard-cap files larger than 1MB (1,048,576 bytes)
-        if (file.size > 1048576) {
-            const sizeMb = (file.size / 1024 / 1024).toFixed(2);
-            const fileBlock = `<file path="${entryRelativePath}" language="text">\n` +
-                      `// [System Alert: File exceeds 1MB threshold (${sizeMb} MB). Excluded to prevent context flood and memory locking.]\n` +
-                      `</file>\n`;
-            bodyParts.push(fileBlock);
-            fileCount++;
-            continue; // Skip processing this massive file entirely
-}
-
-let content = await file.text();
-        
-        const ext = entry.name.includes('.') ? entry.name.split('.').pop().toLowerCase() : '';
+         const ext = entry.name.includes('.') ? entry.name.split('.').pop().toLowerCase() : '';
 
          if (allowedExtensions.includes(ext)) {
             try {
                const file = await entry.getFile();
+               
+               // 1. Threshold Sizing Pre-flight Guard
+               if (file.size > 1048576) {
+                  const sizeMb = (file.size / 1024 / 1024).toFixed(2);
+                  const fileBlock = `<file path="${entryRelativePath}" language="text">\n` +
+                                    `// [System Alert: File exceeds 1MB threshold (${sizeMb} MB). Excluded to prevent context flood and memory locking.]\n` +
+                                    `</file>\n`;
+                  bodyParts.push(fileBlock);
+                  fileCount++;
+                  continue; 
+               }
+
                let content = await file.text();
                const lang = getLanguageName(ext);
                
-               // Compute statistics before structural alteration
                const originalSize = (file.size / 1024).toFixed(2);
                const originalLines = content.split('\n').length;
 
@@ -429,7 +402,6 @@ let content = await file.text();
                   content = stripToSignatures(content, ext);
                }
 
-               // Injecting File-Level Meta-Headers inside the wrapper
                const fileBlock = `<file path="${entryRelativePath}" language="${lang}">\n` +
                                  `// Metrics: Extracted from ${originalSize} KB source | Original Line Count: ${originalLines}\n` +
                                  `${content}\n` +
