@@ -425,11 +425,17 @@ copyBtn.addEventListener('click', () => {
 });
 
 downloadBtn.addEventListener('click', () => {
+   // Get the custom filename from the input, default to 'context.txt' if empty
+   const filenameInput = document.getElementById('filename-input');
+   const fileName = filenameInput.value.trim() || 'context.txt';
+
    const blob = new Blob([outputText.value], { type: 'text/plain' });
    const url = URL.createObjectURL(blob);
    const a = document.createElement('a');
+   
    a.href = url;
-   a.download = 'context.txt';
+   a.download = fileName; // Use the dynamic filename here
+   
    document.body.appendChild(a);
    a.click();
    document.body.removeChild(a);

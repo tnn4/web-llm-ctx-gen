@@ -34,7 +34,12 @@
          </label>
          <div style="margin-left: auto; display: flex; gap: 10px;">
             <button id="copy-btn" class="secondary-btn" disabled>Copy to Clipboard</button>
-            <button id="download-btn" class="secondary-btn" disabled>Download context.txt</button>
+            <label>
+                Output Filename:
+                <input type="text" id="filename-input" value="context.txt" placeholder="context.txt">
+            </label>
+            <button id="download-btn">Download</button>
+            
          </div>
       </div>
       <div class="output-container">
